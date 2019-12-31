@@ -10,7 +10,9 @@ RANDOM_SEED = 20191231
 LOOP_COUNT = 50
 DIFF_MEAN_THRESOLD = 0.01
 DIFF_MAX_THRESHOLD = 0.03
+DIFF_QUANTILE_THRESOLD = 0.011
 MASKED_MEAN_THRESHOLD = 0.031
+MASKED_QUANTILE_THRESOLD = 0.06
 MASKED_MAX_THRESHOLD = 0.15
 
 
@@ -35,6 +37,7 @@ class TestEfficientAttention(TestCase):
             out1, out2 = model.predict([q, k, v])
             diff = np.abs(out1 - out2)
             self.assertLess(diff.mean(), DIFF_MEAN_THRESOLD)
+            self.assertLess(np.quantile(diff, 0.95), DIFF_QUANTILE_THRESOLD)
             self.assertLess(diff.max(), DIFF_MAX_THRESHOLD)
 
     def test_masked_efficient_attention(self):
@@ -63,4 +66,5 @@ class TestEfficientAttention(TestCase):
             out1, out2 = model.predict([q, k, v, mask])
             diff = np.abs(out1 - out2)
             self.assertLess(diff.mean(), MASKED_MEAN_THRESHOLD)
+            self.assertLess(np.quantile(diff, 0.95), MASKED_QUANTILE_THRESOLD)
             self.assertLess(diff.max(), MASKED_MAX_THRESHOLD)

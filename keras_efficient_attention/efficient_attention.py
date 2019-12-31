@@ -1,5 +1,4 @@
 import numpy as np
-import tensorflow as tf
 from .backend import keras
 from math import sqrt
 
@@ -30,7 +29,15 @@ def _softmax_column(x, mask):
 
 
 class EfficientAttention(keras.layers.Layer):
+    r"""
+    The attention layer that implements https://arxiv.org/pdf/1812.01243.pdf paper \
+        (near to scaled-dot-product attention in case of softmax activations, equal in case of scaling activations).
+    """
     def __init__(self, normalization=SCALING_NORMALIZATION, **kwargs):
+        """
+        Initialize attention layer.
+        :param normalization: normalization type. Could be one of "scaling" (SCALING_NORMALIZATION), "softmax" (SOFTMAX_NORMALIZATION)
+        """
         super(EfficientAttention, self).__init__(**kwargs)
         assert normalization in [SCALING_NORMALIZATION, SOFTMAX_NORMALIZATION]
         self.supports_masking = True
@@ -53,19 +60,20 @@ class EfficientAttention(keras.layers.Layer):
 
     def compute_output_shape(self, input_shape):
         if isinstance(input_shape, list):
-            q, k, v = input_shape
+            q, _, v = input_shape
         else:
-            q = k = v = input_shape
+            q = _ = v = input_shape
         batch_size, sequence_length, _ = q
         _, _, features_dim = v
         output_shape = (batch_size, sequence_length, features_dim)
         return output_shape
 
     def build(self, input_shape):
+        # I need to build two placeholders - to pass info `tf.map_fn` function.
         if isinstance(input_shape, list):
-            q, k, v = input_shape
+            _, _, v = input_shape
         else:
-            q = k = v = input_shape
+            _ = _ = v = input_shape
         super(EfficientAttention, self).build(input_shape)
         self.kt_v_meta = keras.backend.constant(np.zeros([1, v[-1], v[-1]]))
         self.e_meta = keras.backend.constant(np.zeros([1, v[1], v[-1]]))
@@ -82,26 +90,25 @@ class EfficientAttention(keras.layers.Layer):
             q = k = v = inputs
         if isinstance(mask, list):
             mask = mask[1]
+        # Implemented attention defined next way (if we're talking about individual batch elements):
+        # `E(Q, K, V) = norm_Q(Q) x (norm_K(K)^T x V)`
+
+        # So, we're applying normalizations
         q = self.normalization_q(q, mask)
         k = self.normalization_k(k, mask)
-
+        # Then dot product each batch element's `norm_K(K)^T x V`
         _, _, kv = keras.backend.map_fn(
-            fn=lambda x: (
-                x[0],
-                x[1],
-                keras.backend.dot(
-                    keras.backend.transpose(x[0]),
-                    x[1]
-                ),
-            ),
+            fn=lambda x: (x[0], x[1],
+                          keras.backend.dot(
+                              keras.backend.transpose(x[0]),
+                              x[1]
+                          )),
             elems=(k, v, self.kt_v_meta)
         )
+        # And finally dot product each batch element's `norm_Q(Q) x (norm_K(K)^T x V)`
         _, _, e = keras.backend.map_fn(
-            fn=lambda x: (
-                x[0],
-                x[1],
-                keras.backend.dot(x[0], x[1]),
-            ),
+            fn=lambda x: (x[0], x[1],
+                          keras.backend.dot(x[0], x[1])),
             elems=(q, kv, self.e_meta)
         )
         return e
